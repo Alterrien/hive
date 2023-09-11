@@ -27,8 +27,8 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.security.AccessControlException;
 import java.security.NoSuchAlgorithmException;
-import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -37,7 +37,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import javax.security.auth.Subject;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.crypto.CipherSuite;
@@ -95,7 +94,6 @@ import org.apache.hadoop.tools.DistCpOptions;
 import org.apache.hadoop.tools.DistCpOptions.FileAttribute;
 import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.FairSchedulerConfiguration;
 import org.apache.tez.dag.api.TezConfiguration;
 import org.apache.tez.runtime.library.api.TezRuntimeConfiguration;
 import org.apache.tez.test.MiniTezCluster;
@@ -296,8 +294,8 @@ public class Hadoop23Shims extends HadoopShimsSecure {
       JobConf jConf = new JobConf(conf);
       jConf.set("yarn.scheduler.capacity.root.queues", "default");
       jConf.set("yarn.scheduler.capacity.root.default.capacity", "100");
-      jConf.setInt(MRJobConfig.MAP_MEMORY_MB, 512);
-      jConf.setInt(MRJobConfig.REDUCE_MEMORY_MB, 512);
+      jConf.setInt(MRJobConfig.MAP_MEMORY_MB, 128);
+      jConf.setInt(MRJobConfig.REDUCE_MEMORY_MB, 128);
       jConf.setInt(MRJobConfig.MR_AM_VMEM_MB, 128);
       jConf.setInt(YarnConfiguration.YARN_MINICLUSTER_NM_PMEM_MB, 512);
       jConf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 128);
@@ -329,8 +327,8 @@ public class Hadoop23Shims extends HadoopShimsSecure {
       for (Map.Entry<String, String> pair: jConf) {
         conf.set(pair.getKey(), pair.getValue());
       }
-      conf.setInt(MRJobConfig.MAP_MEMORY_MB, 512);
-      conf.setInt(MRJobConfig.REDUCE_MEMORY_MB, 512);
+      conf.setInt(MRJobConfig.MAP_MEMORY_MB, 128);
+      conf.setInt(MRJobConfig.REDUCE_MEMORY_MB, 128);
       conf.setInt(MRJobConfig.MR_AM_VMEM_MB, 128);
     }
   }
@@ -494,7 +492,6 @@ public class Hadoop23Shims extends HadoopShimsSecure {
       conf.setBoolean(YarnConfiguration.YARN_MINICLUSTER_CONTROL_RESOURCE_MONITORING, false);
       conf.setInt(YarnConfiguration.YARN_MINICLUSTER_NM_PMEM_MB, 2048);
       conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 512);
-      conf.setInt(FairSchedulerConfiguration.RM_SCHEDULER_INCREMENT_ALLOCATION_MB, 512);
       conf.setInt(YarnConfiguration.RM_SCHEDULER_MAXIMUM_ALLOCATION_MB, 2048);
       configureImpersonation(conf);
       mr.init(conf);
@@ -1085,57 +1082,17 @@ public class Hadoop23Shims extends HadoopShimsSecure {
     }
   }
 
-  private static final String DISTCP_OPTIONS_PREFIX = "distcp.options.";
-
-  List<String> constructDistCpParams(List<Path> srcPaths, Path dst, Configuration conf) {
-    List<String> params = new ArrayList<String>();
-    for (Map.Entry<String,String> entry : conf.getPropsWithPrefix(DISTCP_OPTIONS_PREFIX).entrySet()){
-      String distCpOption = entry.getKey();
-      String distCpVal = entry.getValue();
-      params.add("-" + distCpOption);
-      if ((distCpVal != null) && (!distCpVal.isEmpty())){
-        params.add(distCpVal);
-      }
-    }
-    if (params.size() == 0){
-      // if no entries were added via conf, we initiate our defaults
-      params.add("-update");
-      params.add("-skipcrccheck");
-      params.add("-pb");
-    }
-    for (Path src : srcPaths) {
-      params.add(src.toString());
-    }
-    params.add(dst.toString());
-    return params;
-  }
-
   @Override
-  public boolean runDistCpAs(List<Path> srcPaths, Path dst, Configuration conf, String doAsUser) throws IOException {
-    UserGroupInformation proxyUser = UserGroupInformation.createProxyUser(
-        doAsUser, UserGroupInformation.getLoginUser());
-    try {
-      return proxyUser.doAs(new PrivilegedExceptionAction<Boolean>() {
-        @Override
-        public Boolean run() throws Exception {
-          return runDistCp(srcPaths, dst, conf);
-        }
-      });
-    } catch (InterruptedException e) {
-      throw new IOException(e);
-    }
-  }
+  public boolean runDistCp(Path src, Path dst, Configuration conf) throws IOException {
 
-  @Override
-  public boolean runDistCp(List<Path> srcPaths, Path dst, Configuration conf) throws IOException {
-       DistCpOptions options = new DistCpOptions.Builder(srcPaths, dst)
-        .withSyncFolder(true)
-        .withCRC(true)
-        .preserve(FileAttribute.BLOCKSIZE)
-        .build();
+    DistCpOptions options = new DistCpOptions.Builder(Collections.singletonList(src), dst)
+            .withSyncFolder(true)
+            .withCRC(true)
+            .preserve(FileAttribute.BLOCKSIZE)
+            .build();
 
     // Creates the command-line parameters for distcp
-    List<String> params = constructDistCpParams(srcPaths, dst, conf);
+    String[] params = {"-update", "-skipcrccheck", src.toString(), dst.toString()};
 
     try {
       conf.setBoolean("mapred.mapper.new-api", true);
@@ -1143,7 +1100,7 @@ public class Hadoop23Shims extends HadoopShimsSecure {
 
       // HIVE-13704 states that we should use run() instead of execute() due to a hadoop known issue
       // added by HADOOP-10459
-      if (distcp.run(params.toArray(new String[0])) == 0) {
+      if (distcp.run(params) == 0) {
         return true;
       } else {
         return false;
@@ -1208,24 +1165,18 @@ public class Hadoop23Shims extends HadoopShimsSecure {
       if(!"hdfs".equalsIgnoreCase(path.toUri().getScheme())) {
         return false;
       }
-
-      return (getEncryptionZoneForPath(fullPath) != null);
-    }
-
-    private EncryptionZone getEncryptionZoneForPath(Path path) throws IOException {
-      if (path.getFileSystem(conf).exists(path)) {
-        return hdfsAdmin.getEncryptionZoneForPath(path);
-      } else if (!path.getParent().equals(path)) {
-        return getEncryptionZoneForPath(path.getParent());
-      } else {
-        return null;
-       }
+      try {
+        return (hdfsAdmin.getEncryptionZoneForPath(fullPath) != null);
+      } catch (FileNotFoundException fnfe) {
+        LOG.debug("Failed to get EZ for non-existent path: "+ fullPath, fnfe);
+        return false;
+      }
     }
 
     @Override
     public boolean arePathsOnSameEncryptionZone(Path path1, Path path2) throws IOException {
-      return equivalentEncryptionZones(getEncryptionZoneForPath(path1),
-                                       getEncryptionZoneForPath(path2));
+      return equivalentEncryptionZones(hdfsAdmin.getEncryptionZoneForPath(path1),
+                                       hdfsAdmin.getEncryptionZoneForPath(path2));
     }
 
     private boolean equivalentEncryptionZones(EncryptionZone zone1, EncryptionZone zone2) {
@@ -1263,8 +1214,8 @@ public class Hadoop23Shims extends HadoopShimsSecure {
     public int comparePathKeyStrength(Path path1, Path path2) throws IOException {
       EncryptionZone zone1, zone2;
 
-      zone1 = getEncryptionZoneForPath(path1);
-      zone2 = getEncryptionZoneForPath(path2);
+      zone1 = hdfsAdmin.getEncryptionZoneForPath(path1);
+      zone2 = hdfsAdmin.getEncryptionZoneForPath(path2);
 
       if (zone1 == null && zone2 == null) {
         return 0;
