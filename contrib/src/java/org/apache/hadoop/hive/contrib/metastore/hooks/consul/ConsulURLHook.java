@@ -129,7 +129,7 @@ public class ConsulURLHook implements URIResolverHook {
             }
             String[] paramKv = queryParams.split("=");
             if (paramKv.length != 2) {
-                throw new IllegalArgumentException("Consul string query parameter isn't to the format dc=value");
+                throw new IllegalArgumentException("Consul string query parameter isn't in the format dc=value");
             }
             if (!paramKv[0].equals("dc")) {
                 throw new IllegalArgumentException("Consul string query parameter can only be \"dc\"");
