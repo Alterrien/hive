@@ -193,7 +193,7 @@ public class HiveMetaStore extends ThriftHiveMetastore {
   public static final String ADMIN = "admin";
   public static final String PUBLIC = "public";
 
-  static HadoopThriftAuthBridge.Server saslServer;
+  private static HadoopThriftAuthBridge.Server saslServer;
   private static HiveDelegationTokenManager delegationTokenManager;
   private static boolean useSasl;
 
