@@ -193,7 +193,7 @@ public class HiveMetaStore extends ThriftHiveMetastore {
   public static final String ADMIN = "admin";
   public static final String PUBLIC = "public";
 
-  private static HadoopThriftAuthBridge.Server saslServer;
+  static HadoopThriftAuthBridge.Server saslServer;
   private static HiveDelegationTokenManager delegationTokenManager;
   private static boolean useSasl;
 
@@ -312,7 +312,7 @@ public class HiveMetaStore extends ThriftHiveMetastore {
           address, cmd).toString());
     }
 
-    private static String getIPAddress() {
+    public static String getIPAddress() {
       if (useSasl) {
         if (saslServer != null && saslServer.getRemoteAddress() != null) {
           return saslServer.getRemoteAddress().getHostAddress();
